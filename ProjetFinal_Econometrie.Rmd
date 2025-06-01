@@ -1,0 +1,555 @@
+```{r}
+#Ici, il y a les bibliotheques, le chemin d'acces principal, les fichiers et leurs lectures.
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(lubridate)
+library(sf)
+library(tidyr)
+library(tidyverse)
+library(stars)
+library(terra)
+library(spData)
+library(spDataLarge)
+library(tmap)
+library(leaflet)
+data(world)
+library(geodata)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+setwd("C:/Users/imene/OneDrive - Université paris nanterre/CMI/CMIL3/Semestre5/Atelier Econometrie/Projet Final/Projet Final")
+parc <- "parc_national_20241221.csv"
+aerogenerateur <- "aerogenerateur_national_20241221.csv"
+maison <- "maisons_geo.csv"
+
+aerogenerateur_data <- read_delim(aerogenerateur, delim = ";", show_col_types = FALSE)
+parc_data <- read_delim(parc, delim = ";", show_col_types = FALSE)
+maison_data <- read_delim(maison, delim = ",", show_col_types = FALSE)
+
+maison_data <- maison_data %>%
+  separate(jour_mutation, 
+           into = c("jour_mutation", "mois_mutation", "annee_mutation", "valeur_fonciere", "code_postal", "nom_commune", "code_departement", "id_parcelle", "surface_carrez_total", "surface_reelle_bati_total", "surface_terrain_total", "nombre_lots", "nombre_maisons", "surface_carrez_maisons", "surface_reelle_bati_maisons", "surface_terrain_maisons", "nombre_dependances", "surface_carrez_dependances", "surface_reelle_bati_dependances", "surface_terrain_dependances", "nombre_pieces_principales", "nature_culture", "nature_culture_speciale", "id_mutation", "geometry", "distance.gare", "distance.mairie", "distance.ecoles", "distance.magasins", "distance.primaire", "distance.college", "distance.littoral"), 
+           sep = ",", 
+           convert = TRUE)  # convert = TRUE pour convertir les colonnes en types appropriés
+
+colnames(aerogenerateur_data)
+colnames(parc_data)
+colnames(maison_data)
+
+```
+
+```{r}
+#Coordonnées GPS
+aerogenerateur_data <- aerogenerateur_data %>%
+  filter(!code_dept %in% c("971", "974")) %>%
+ mutate(x_aerogenerateur = ifelse(x_aerogenerateur > 1.1e7, x_aerogenerateur/10, x_aerogenerateur),
+         x_aerogenerateur = ifelse(x_aerogenerateur > 1.1e7, x_aerogenerateur/10, x_aerogenerateur),
+         x_aerogenerateur = x_aerogenerateur/10, y_aerogenerateur = y_aerogenerateur/10)  %>%
+    select(id_aerogenerateur, id_parc,code_dept,code_insee, puissance, hauteur_totale, hauteur_mat_nacelle, diametre_rotor, x_aerogenerateur,y_aerogenerateur)
+aerogenerateur_sf <-  st_as_sf(aerogenerateur_data, coords = c("x_aerogenerateur", "y_aerogenerateur"), crs = 2154)
+ggplot(aerogenerateur_sf) + geom_sf(shape = 4, size = 2)
+aerogenerateur_sf %>% filter(code_dept == "50")
+ggplot(aerogenerateur_sf %>% slice(1:10)) + geom_sf(shape = 4, size =2)
+aerogenerateur_sf %>% select(id_aerogenerateur) %>% plot()
+colnames(aerogenerateur_sf)
+
+aerogenerateur_sf <- aerogenerateur_sf %>%
+  mutate(
+    coords = st_coordinates(geometry),
+    x_aerogenerateur = coords[, 1],   
+    y_aerogenerateur = coords[, 2]
+  )
+
+aerogenerateur_sf <- aerogenerateur_sf %>%
+  mutate(x_aerogenerateur = ifelse(x_aerogenerateur > 1.2e7, x_aerogenerateur / 10, x_aerogenerateur))
+
+ggplot(aerogenerateur_sf) +
+  geom_histogram(aes(x = y_aerogenerateur), fill = "blue", color = "black") +
+  labs(title = "Histogramme des Coordonnées Y des Éoliennes",
+       x = "Coordonnées Y",
+       y = "Fréquence") +
+  theme_minimal()
+aerogenerateur_data %>% filter(is.na(y_aerogenerateur))
+
+```
+
+```{r}
+#SIG
+
+print(st_coordinates(aerogenerateur_sf))
+
+ggplot() +
+  geom_sf(data = aerogenerateur_sf, aes(color = puissance), size = 3) +
+  scale_color_viridis_c(option = "plasma", name = "Puissance (kW)") +
+  labs(title = "Distribution des Éoliennes en France",
+       subtitle = "Puissance des éoliennes en kW") +
+  theme_minimal()
+
+str(aerogenerateur_sf)
+
+print(aerogenerateur_sf)
+
+maison_data <- maison_data %>%
+  mutate(
+    # Enlever les guillemets et "c(" pour obtenir les coordonnées
+    geometry_clean = gsub("\"|c\\(|\\)", "", geometry),
+    
+    # Extraire x et y après séparation
+    x = as.numeric(gsub(",.*", "", geometry_clean)),  # Extraire la première valeur (x)
+    y = as.numeric(gsub(".*,(.*)", "\\1", geometry_clean))  # Extraire la deuxième valeur (y)
+  )
+
+# Créer une carte choroplèthe des éoliennes en fonction de la puissance
+ggplot() +
+  geom_sf(data = departements, fill = "lightgrey", color = "black") +  # Fond de carte
+  geom_sf(data = aerogenerateur_sf, aes(color = hauteur_totale), size = 3) +  # Éoliennes
+  scale_color_viridis_c(option = "plasma", name = "Puissance (kW)") +  # Palette de couleurs
+  labs(title = "Distribution des Éoliennes en France",
+       subtitle = "Puissance des éoliennes en kW") +
+  theme_minimal() +
+  theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+
+
+# Charger le fichier GeoPackage
+maisons <- st_read("C:/Users/imene/OneDrive - Université paris nanterre/CMI/CMIL3/Semestre5/Atelier Econometrie/Projet Final/Projet Final/old/old/maisons_geotopo.gpkg")
+
+# Vérifier la structure des données
+str(maisons)
+
+# Créer une carte choroplèthe
+ggplot(data = maisons) +
+  geom_sf(aes(fill = valeur_fonciere), color = "grey") +  # Remplissage par la variable
+  scale_fill_viridis_c(option = "plasma", trans= "log") +  # Palette de couleurs
+  labs(title = "Carte Choroplèthe des Maisons",
+       subtitle = "Données provenant de maisons_geotopo.gpkg") +
+  theme_minimal()
+
+maison_sf <- st_as_sf(maison_data, coords = c("x", "y"), crs = 2154)  # Utilisez le CRS approprié
+
+
+# Créer une carte choroplèthe des maisons
+ggplot(data = maison_sf) +
+  geom_sf(aes(fill = puissance), color = "grey") +  # Remplir par valeur foncière
+  scale_fill_viridis_c(option = "plasma") +  # Utiliser une palette de couleurs
+  labs(title = "Distribution des Maisons en France",
+       fill = "Valeur Foncière") +
+  theme_minimal()
+```
+
+```{r}
+# Statistiques descriptives de la base de données des éoliennes
+
+eolienne <- left_join(aerogenerateur_data, parc_data, by = "id_parc") %>%
+  select(-siret, -nom_exploitant, -date_depot_demande_autorisation, 
+         -date_delivrance_avis_autorite_environnementale, -date_delivrance_autorisation, 
+         -date_arrete_prefectoral_complementaire_renouvellement, -date_debut_demantelement, -date_maj)
+
+# Puissance
+puissance_stats <- eolienne %>%
+  summarise(
+    puissance_moyenne = mean(puissance, na.rm = TRUE),
+    puissance_mediane = median(puissance, na.rm = TRUE),
+    puissance_min = min(puissance, na.rm = TRUE),
+    puissance_max = max(puissance, na.rm = TRUE),
+    puissance_sd = sd(puissance, na.rm = TRUE)
+  )
+print(puissance_stats)
+
+# Hauteur
+hauteur_stats <- eolienne %>%
+  summarise(
+    hauteur_totale_moyenne = mean(hauteur_totale, na.rm = TRUE),
+    hauteur_totale_mediane = median(hauteur_totale, na.rm = TRUE),
+    hauteur_totale_min = min(hauteur_totale, na.rm = TRUE),
+    hauteur_totale_max = max(hauteur_totale, na.rm = TRUE),
+    hauteur_totale_sd = sd(hauteur_totale, na.rm = TRUE)
+  )
+print(hauteur_stats)
+
+# Durée de construction
+eolienne <- eolienne %>%
+  mutate(duree_construction = as.numeric(difftime(date_mise_en_service, date_debut_construction, units = "days"))) %>%
+  filter(duree_construction >= 0)
+
+duree_stats <- eolienne %>%
+  summarise(
+    duree_moyenne = mean(duree_construction, na.rm = TRUE),
+    duree_mediane = median(duree_construction, na.rm = TRUE),
+    duree_min = min(duree_construction, na.rm = TRUE),
+    duree_max = max(duree_construction, na.rm = TRUE),
+    duree_sd = sd(duree_construction, na.rm = TRUE)
+  )
+print(duree_stats)
+
+# Nombre d'éoliennes par parc
+eoliennes_par_parc <- eolienne %>%
+  group_by(id_parc) %>%
+  summarise(nb_eoliennes = n())
+
+# Éoliennes construites par année
+eolienne <- eolienne %>% mutate(annee_mise_en_service = year(date_mise_en_service))
+
+eoliennes_par_annee <- eolienne %>%
+  group_by(annee_mise_en_service) %>%
+  summarise(nb_eoliennes = n())
+
+# Graphiques
+
+# Graphique en barres pour les statistiques de hauteur
+hauteur_graph <- hauteur_stats %>%
+  pivot_longer(cols = everything(), names_to = "Statistique", values_to = "Valeur")
+
+ggplot(hauteur_graph, aes(x = Statistique, y = Valeur, fill = Statistique)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Statistiques de Hauteur des Éoliennes",
+       x = "Statistique", y = "Valeur") +
+  theme_minimal()
+
+# Boîte à moustaches pour la hauteur totale
+ggplot(eolienne, aes(y = hauteur_totale)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Distribution de la Hauteur Totale des Éoliennes",
+       y = "Hauteur Totale (m)") +
+  theme_minimal()
+
+# Graphique en barres pour la durée de construction
+duree_graph <- duree_stats %>%
+  pivot_longer(cols = everything(), names_to = "Statistique", values_to = "Valeur")
+
+ggplot(duree_graph, aes(x = Statistique, y = Valeur, fill = Statistique)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Durée de Construction des Éoliennes",
+       x = "Statistique", y = "Valeur (jours)") +
+  theme_minimal()
+
+# Boîte à moustaches pour la durée de construction
+ggplot(eolienne, aes(y = duree_construction)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(title = "Distribution de la Durée de Construction des Éoliennes",
+       y = "Durée de Construction (jours)") +
+  theme_minimal()
+
+# Graphique en barres pour le nombre d'éoliennes par parc
+ggplot(eoliennes_par_parc, aes(x = reorder(id_parc, -nb_eoliennes), y = nb_eoliennes, fill = id_parc)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Nombre d'Éoliennes par Parc",
+       x = "Parc", y = "Nombre d'Éoliennes") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Graphique en barres pour les éoliennes construites par année
+ggplot(eoliennes_par_annee, aes(x = annee_mise_en_service, y = nb_eoliennes, fill = as.factor(annee_mise_en_service))) +
+  geom_bar(stat = "identity") +
+  labs(title = "Éoliennes Construites par Année",
+       x = "Année", y = "Nombre d'Éoliennes") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Histogramme de la puissance des éoliennes
+ggplot(eolienne, aes(x = puissance)) +
+  geom_histogram(binwidth = 0.5, fill = "lightblue", color = "black") +
+  labs(title = "Histogramme de la Puissance des Éoliennes",
+       x = "Puissance (kW)", y = "Fréquence") +
+  theme_minimal()
+
+# Histogramme de la durée de construction
+ggplot(eolienne, aes(x = duree_construction)) +
+  geom_histogram(binwidth = 10, fill = "lightgreen", color = "black") +
+  labs(title = "Histogramme de la Durée de Construction des Éoliennes",
+       x = "Durée de Construction (jours)", y = "Fréquence") +
+  theme_minimal()
+
+```
+
+```{r}
+#Statistiques descriptives de la base Immobilier
+
+maison_data <- maison_data %>%
+  filter(!code_departement %in% c('75', '92', '93', '94', '91', '78', '69', '13', '31', '33', '44', '59', '62', '76', '68', '67', '83', '2A', '2B'))
+
+# Statistiques descriptives de la valeur foncière
+valeur_fonciere_stats <- maison_data %>%
+  summarise(
+    valeur_moyenne = mean(valeur_fonciere, na.rm = TRUE),
+    valeur_mediane = median(valeur_fonciere, na.rm = TRUE),
+    valeur_min = min(valeur_fonciere, na.rm = TRUE),
+    valeur_max = max(valeur_fonciere, na.rm = TRUE),
+    valeur_sd = sd(valeur_fonciere, na.rm = TRUE)
+  )
+print(valeur_fonciere_stats)
+
+# Mutations par année
+mutations_par_annee <- table(maison_data$annee_mutation)
+print(mutations_par_annee)
+
+# Fréquence par mois
+frequence_mois <- table(maison_data$mois_mutation)
+print(frequence_mois)
+
+# Nombre total de mutations
+nombre_mutations <- nrow(maison_data)
+print(nombre_mutations)
+
+# Distribution graphique
+ggplot(maison_data, aes(y = valeur_fonciere)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Distribution des Valeurs Foncières", y = "Valeur Foncière (€)") +
+  theme_minimal()
+
+# Nombre de ventes par commune
+ventes_par_commune <- maison_data %>%
+  count(nom_commune, sort = TRUE)
+
+# Top 10 des communes avec le plus de ventes
+top_communes <- ventes_par_commune %>%
+  top_n(10, n)
+print(top_communes)
+
+# Statistiques descriptives sur les surfaces
+surface_stats <- maison_data %>%
+  summarise(
+    surface_carrez_moyenne = mean(surface_carrez_total, na.rm = TRUE),
+    surface_carrez_mediane = median(surface_carrez_total, na.rm = TRUE),
+    surface_carrez_min = min(surface_carrez_total, na.rm = TRUE),
+    surface_carrez_max = max(surface_carrez_total, na.rm = TRUE),
+    surface_reelle_bati_moyenne = mean(surface_reelle_bati_total, na.rm = TRUE),
+    surface_reelle_bati_mediane = median(surface_reelle_bati_total, na.rm = TRUE),
+    surface_reelle_bati_min = min(surface_reelle_bati_total, na.rm = TRUE),
+    surface_reelle_bati_max = max(surface_reelle_bati_total, na.rm = TRUE),
+    surface_terrain_moyenne = mean(surface_terrain_total, na.rm = TRUE),
+    surface_terrain_mediane = median(surface_terrain_total, na.rm = TRUE),
+    surface_terrain_min = min(surface_terrain_total, na.rm = TRUE),
+    surface_terrain_max = max(surface_terrain_total, na.rm = TRUE)
+  )
+print(surface_stats)
+
+# Distribution des pièces principales
+pieces_principales_stats <- table(maison_data$nombre_pieces_principales)
+print(pieces_principales_stats)
+
+# Histogramme des surfaces réelles bâties
+ggplot(maison_data, aes(x = surface_reelle_bati_total)) +
+  geom_histogram(fill = "orange", bins = 30) +
+  labs(title = "Distribution des Surfaces Réelles Bâties", x = "Surface (m²)", y = "Nombre de biens") +
+  theme_minimal()
+
+# Statistiques descriptives sur les distances
+distance_stats <- maison_data %>%
+  summarise(
+    distance_gare_moyenne = mean(as.numeric(distance.gare), na.rm = TRUE),
+        distance_mairie_moyenne = mean(as.numeric(distance.mairie), na.rm = TRUE),
+    distance_ecoles_moyenne = mean(as.numeric(distance.ecoles), na.rm = TRUE),
+    distance_gare_mediane = median(as.numeric(distance.gare), na.rm = TRUE),
+    distance_mairie_mediane = median(as.numeric(distance.mairie), na.rm = TRUE),
+    distance_ecoles_mediane = median(as.numeric(distance.ecoles), na.rm = TRUE)
+  )
+print(distance_stats)
+
+# Comparaison graphique des distances
+maison_data <- maison_data %>%
+  mutate(
+    distance.gare = as.numeric(distance.gare),
+    distance.mairie = as.numeric(distance.mairie),
+    distance.ecoles = as.numeric(distance.ecoles)
+  )
+
+# Boîte à moustaches pour comparer les distances
+maison_data %>%
+  select(distance.gare, distance.mairie, distance.ecoles) %>%
+  pivot_longer(cols = everything(), names_to = "Type_Distance", values_to = "Valeur") %>%
+  ggplot(aes(x = Type_Distance, y = Valeur, fill = Type_Distance)) +
+  geom_boxplot() +
+  labs(title = "Comparaison des Distances", y = "Distance (m)", x = "Type de Distance") +
+  theme_minimal()
+
+# Histogramme des distances
+ggplot(maison_data, aes(x = distance.gare)) +
+  geom_histogram(fill = "lightblue", bins = 30) +
+  labs(title = "Histogramme des Distances à la Gare", x = "Distance à la Gare (m)", y = "Nombre de biens") +
+  theme_minimal()
+
+ggplot(maison_data, aes(x = distance.mairie)) +
+  geom_histogram(fill = "lightgreen", bins = 30) +
+  labs(title = "Histogramme des Distances à la Mairie", x = "Distance à la Mairie (m)", y = "Nombre de biens") +
+  theme_minimal()
+
+ggplot(maison_data, aes(x = distance.ecoles)) +
+  geom_histogram(fill = "orange", bins = 30) +
+  labs(title = "Histogramme des Distances aux Écoles", x = "Distance aux Écoles (m)", y = "Nombre de biens") +
+  theme_minimal()
+
+```
+
+
+```{r}
+#Regression et Statistiques d'un seul jeu de donnée
+
+colnames(maison_data)
+
+# Graphique 1 : Relation entre la Valeur Foncière et le Nombre de Pièces
+reg1 <- ggplot(maison_data, aes(x = nombre_pieces_principales, y = log10(valeur_fonciere + 1))) +
+  geom_point(alpha = 0.4, color = "blue") +
+  labs(
+    title = "Relation entre le Nombre de Pièces et la Valeur Foncière",
+    x = "Nombre de Pièces",
+    y = "log10(Valeur Foncière (€))"
+  ) +
+  theme_minimal()
+
+print(reg1)
+
+# Graphique 2 : Relation entre la Valeur Foncière et l'Année
+reg2 <- ggplot(maison_data, aes(x = annee_mutation, y = log10(valeur_fonciere + 1))) +
+  geom_point(alpha = 0.4, color = "green") +
+  labs(
+    title = "Relation entre l'Année de Mutation et la Valeur Foncière",
+    x = "Année de Mutation",
+    y = "log10(Valeur Foncière (€))"
+  ) +
+  theme_minimal()
+
+print(reg2)
+
+# Graphique 3 : Relation entre la Valeur Foncière et le Département
+reg3 <- ggplot(maison_data, aes(x = factor(code_departement), y = log10(valeur_fonciere + 1))) +
+  geom_boxplot(fill = "orange", alpha = 0.6) +
+  labs(
+    title = "Relation entre le Département et la Valeur Foncière",
+    x = "Département",
+    y = "log10(Valeur Foncière (€))"
+  ) +
+  theme_minimal()
+
+print(reg3)
+
+# Graphique 4 : Relation entre la Valeur Foncière et la Surface du Terrain
+reg4 <- ggplot(maison_data, aes(x = surface_terrain_maisons, y = log10(valeur_fonciere + 1))) +
+  geom_point(alpha = 0.4, color = "purple") +
+  labs(
+    title = "Relation entre la Surface du Terrain et la Valeur Foncière",
+    x = "Surface du Terrain (m²)",
+    y = "log10(Valeur Foncière (€))"
+  ) +
+  theme_minimal()
+
+print(reg4)
+maison_data_clean <- maison_data %>%
+  filter(!is.na(valeur_fonciere) & 
+         !is.na(code_departement) & 
+         !is.na(annee_mutation) & 
+         !is.na(surface_terrain_maisons) & 
+         !is.na(nombre_pieces_principales))
+
+
+maison_data_clean <- maison_data_clean %>%
+  mutate(log_valeur_fonciere = log(valeur_fonciere))
+
+maison_data_clean <- maison_data_clean %>%
+  filter(valeur_fonciere > 0)
+
+
+# Vérifier les valeurs de log_valeur_fonciere
+sum(is.na(maison_data_clean$log_valeur_fonciere))
+sum(is.infinite(maison_data_clean$log_valeur_fonciere))
+
+# Ajustement du modèle avec toutes les variables
+modele_complet <- lm(
+  log(valeur_fonciere) ~ 
+    factor(code_departement) + 
+    annee_mutation + 
+    surface_terrain_maisons + 
+    nombre_pieces_principales,
+  data = maison_data_clean
+)
+
+# Résumé du modèle
+summary(modele_complet)
+
+
+```
+
+
+
+```{r}
+#Regression et Statistiques descriptivesdes deux bases de données
+
+colnames(eolienne)
+colnames(maison_data)
+
+maison_data <- maison_data %>%
+  mutate(code_departement = as.character(code_departement))
+
+comparaison_data <- maison_data %>%
+  group_by(code_departement) %>%
+  summarise(
+    valeur_fonciere_moyenne = mean(valeur_fonciere, na.rm = TRUE),
+    surface_carrez_moyenne = mean(surface_carrez_total, na.rm = TRUE),
+    nombre_mutations = n()
+  ) %>%
+  left_join(
+    eolienne %>%
+      group_by(code_dept.x) %>%
+      summarise(
+        puissance_moyenne = mean(puissance, na.rm = TRUE),
+        hauteur_totale_moyenne = mean(hauteur_totale, na.rm = TRUE),
+        nombre_eoliennes = n()
+      ),
+    by = c("code_departement" = "code_dept.x")
+  )
+
+print(comparaison_data)
+summary(comparaison_data)
+
+correlation_matrix <- cor(comparaison_data %>% select(valeur_fonciere_moyenne, puissance_moyenne, surface_carrez_moyenne, nombre_eoliennes), use = "complete.obs")
+print(correlation_matrix)
+
+ggplot(comparaison_data, aes(x = valeur_fonciere_moyenne, y = puissance_moyenne)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relation entre la Valeur Foncière et la Puissance des Éoliennes par Département",
+       x = "Valeur Foncière Moyenne (€)",
+       y = "Puissance Moyenne des Éoliennes (kW)") +
+  theme_minimal()
+
+ggplot(comparaison_data, aes(x = surface_carrez_moyenne, y = nombre_eoliennes)) +
+  geom_point(color = "green") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relation entre la Surface des Maisons et le Nombre d'Éoliennes par Département",
+       x = "Surface Carrez Moyenne (m²)",
+       y = "Nombre d'Éoliennes") +
+  theme_minimal()
+
+ggplot(comparaison_data, aes(x = valeur_fonciere_moyenne, y = hauteur_totale_moyenne)) +
+  geom_point(color = "blue") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relation entre la Valeur Foncière et la Hauteur des Éoliennes par Département",
+       x = "Valeur Foncière Moyenne (€)",
+       y = "Hauteur Totale Moyenne des Éoliennes (m)") +
+  theme_minimal()
+
+ggplot(comparaison_data, aes(x = valeur_fonciere_moyenne, y = nombre_eoliennes)) +
+  geom_point(color = "green") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Relation entre la Valeur Foncière et le Nombre d'Éoliennes par Département",
+       x = "Valeur Foncière Moyenne (€)",
+       y = "Nombre d'Éoliennes") +
+  theme_minimal()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
