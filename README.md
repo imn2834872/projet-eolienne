@@ -33,4 +33,4 @@ L’objectif est d’analyser l’impact de la présence d’éoliennes sur les 
 
 1. Cloner ce dépôt :
    ```bash
-   git clone https://github.com/ImeneZebiri/projet-eolienne.git
+   git clone https://github.com/imenezebiri/projet-eolienne.git
